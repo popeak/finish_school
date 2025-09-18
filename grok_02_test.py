@@ -3,6 +3,7 @@ import turtle
 import json
 import os
 import random
+import datetime
 
 # ------------------ Turtle 初始化 ------------------
 screen = turtle.Screen()
@@ -114,15 +115,49 @@ progress = load_progress()
 def check_code(code, keywords):
     return all(kw in code for kw in keywords)
 
+# def update_progress_display():
+#     status = []
+#     for task in tasks:
+#         done = progress.get(str(task["id"]), False)
+#         status.append(f"任务{task['id']}: {'✅已完成' if done else '❌未完成'}")
+#     progress_display.config(state="normal")
+#     progress_display.delete("1.0", tk.END)
+#     progress_display.insert(tk.END, "\n".join(status))
+#     progress_display.config(state="disabled")
 def update_progress_display():
     status = []
     for task in tasks:
-        done = progress.get(str(task["id"]), False)
-        status.append(f"任务{task['id']}: {'✅已完成' if done else '❌未完成'}")
+        task_id = str(task["id"])
+        record = progress.get(task_id, {})
+
+        # 如果旧记录是 bool 类型，转换成新结构
+        if isinstance(record, bool):
+            record = {
+                "done": record,
+                "timestamp": "",
+                "attempts": 1 if record else 0
+            }
+            progress[task_id] = record  # 更新为新结构
+
+        done = record.get("done", False)
+        attempts = record.get("attempts", 0)
+        timestamp = record.get("timestamp", "")
+        title = task.get("title", f"任务 {task_id}")
+        line = f"{title}: {'✅已完成' if done else '❌未完成'} | 操作次数: {attempts}"
+        # if done and timestamp:
+        #     try:
+        #         from datetime import datetime
+        #         t = datetime.fromisoformat(timestamp)
+        #         line += f" | 完成时间: {t.strftime('%H:%M:%S')}"
+        #     except:
+        #         line += f" | 完成时间: {timestamp}"
+        status.append(line)
+
     progress_display.config(state="normal")
     progress_display.delete("1.0", tk.END)
     progress_display.insert(tk.END, "\n".join(status))
     progress_display.config(state="disabled")
+
 
 # ------------------ 图形绘制函数 ------------------
 def draw_hexagon():
@@ -146,6 +181,7 @@ def draw_concentric_circles():
     except ValueError:
         show_code("请输入有效的整数参数")
         return
+    radius = 30
     pen = turtle.Turtle()
     pen.up()
     for i in range(3):
@@ -155,7 +191,7 @@ def draw_concentric_circles():
         pen.up()
     pen.hideturtle()
     show_code(
-        "pen = turtle.Turtle()\npen.up()\nfor i in range(3):\n    pen.goto(0, -radius*(i+1))\n    pen.down()\n    pen.circle(radius*(i+1))\n    pen.up()\npen.hideturtle()"
+        "radius = 30\npen = turtle.Turtle()\npen.up()\nfor i in range(3):\n    pen.goto(0, -radius*(i+1))\n    pen.down()\n    pen.circle(radius*(i+1))\n    pen.up()\npen.hideturtle()"
     )
 
 def draw_spiral():
@@ -243,16 +279,28 @@ def run_custom_code(task=None):
     user_code = code_input.get("1.0", tk.END)
     try:
         exec(user_code, {"turtle": turtle})
-        if task:
-            if check_code(user_code, task["check"]):
-                feedback_label.config(text="✅ 太棒了！你完成了这个任务！")
-                progress[str(task["id"])] = True
-                save_progress(progress)
+        task_id = str(task["id"])
+        if task_id not in progress or not isinstance(progress[task_id], dict):
+            progress[task_id] = {"done": False, "timestamp": "", "attempts": 0}
+
+        progress[task_id]["attempts"] += 1
+
+        if check_code(user_code, task["check"]):
+            progress[task_id]["done"] = True
+            progress[task_id]["timestamp"] = datetime.datetime.now().isoformat()
+            save_progress(progress)
+            show_code(user_code)
+
+            # 自动跳转到下一个任务
+            current_index = tasks.index(task)
+            if current_index + 1 < len(tasks):
+                feedback_label.config(text="✅ 太棒了！你完成了这个任务！已进入下一个任务 👇")
+                show_task(current_index + 1)
             else:
-                feedback_label.config(text="⚠️ 请检查代码或结构不完全符合任务要求")
+                feedback_label.config(text="🎉 所有任务已完成！你可以点击『刷新任务池』再挑战一次！")
         else:
-            feedback_label.config(text="✅ 代码运行成功")
-        show_code(user_code)
+            feedback_label.config(text="⚠️ 图形绘制成功，但代码结构不完全符合任务要求")
+            show_code(user_code)
     except Exception as e:
         feedback_label.config(text=f"❌ 错误：{e}")
         show_code(f"错误：{e}")
@@ -378,11 +426,86 @@ def refresh_tasks():
     tasks = random.sample(all_tasks, 3)
     show_task(0)
 
-task_buttons_frame = tk.Frame(root)
-task_buttons_frame.pack(pady=5)
+#学习报告导出功能
 
-refresh_btn = tk.Button(task_buttons_frame, text="🔄 刷新任务池", fg="blue", command=refresh_tasks)
-refresh_btn.pack()
+def generate_learning_report():
+    total = len(tasks)
+    completed = 0
+    most_attempts = ("", 0)
+    recent_task = ("", "")
+
+    lines = ["📘 学习报告", "------------------"]
+    for task in tasks:
+        task_id = str(task["id"])
+        title = task.get("title", task_id)
+        record = progress.get(task_id, {})
+        if isinstance(record, bool):
+            record = {"done": record, "timestamp": "", "attempts": 1 if record else 0}
+        done = record.get("done", False)
+        attempts = record.get("attempts", 0)
+        timestamp = record.get("timestamp", "")
+        if done:
+            completed += 1
+            if timestamp > recent_task[1]:
+                recent_task = (title, timestamp)
+        if attempts > most_attempts[1]:
+            most_attempts = (title, attempts)
+        line = f"{title}: {'✅已完成' if done else '❌未完成'} | 操作次数: {attempts}"
+        if done and timestamp:
+            line += f" | 完成时间: {timestamp.split('T')[1][:8]}"
+        lines.append(line)
+
+    lines.append("------------------")
+    lines.append(f"总任务数: {total}")
+    lines.append(f"已完成任务: {completed}")
+    lines.append(f"完成率: {round(completed / total * 100, 1)}%")
+    lines.append(f"最近完成任务: {recent_task[0]} 于 {recent_task[1].split('T')[1][:8]}" if recent_task[1] else "最近完成任务: 无")
+    lines.append(f"最多操作任务: {most_attempts[0]}（{most_attempts[1]} 次）")
+
+    return "\n".join(lines)
+
+    generate_learning_report()
+
+# task_buttons_frame = tk.Frame(root)
+# task_buttons_frame.pack(pady=5)
+
+
+
+# refresh_btn = tk.Button(task_buttons_frame, text="🔄 刷新任务池", fg="blue", command=refresh_tasks)
+# refresh_btn.pack()
+
+# report_btn = tk.Button(root, text="📊 生成学习报告", command=generate_learning_report)
+# report_btn.pack(pady=5)
+
+# report_display = tk.Text(root, height=12, width=60, bg="#f9f9f9")
+# report_display.pack(pady=5)
+# report_display.config(state="disabled")
+
+def show_report_popup():
+    report_window = tk.Toplevel(root)
+    report_window.title("📊 学习报告")
+    report_window.geometry("500x400")
+
+    report_text = tk.Text(report_window, wrap="word", bg="#f9f9f9", font=("Arial", 10))
+    report_text.pack(expand=True, fill="both", padx=10, pady=10)
+
+    report_text.insert(tk.END, generate_learning_report())
+    report_text.config(state="disabled")
+
+
+# 创建横向按钮容器
+button_frame = tk.Frame(root)
+button_frame.pack(pady=10)
+
+# 刷新任务池按钮
+refresh_btn = tk.Button(button_frame, text="🔄 刷新任务池", command=refresh_tasks)
+refresh_btn.pack(side="left", padx=10)
+
+# 生成学习报告按钮
+report_btn = tk.Button(button_frame, text="📊 生成学习报告", command=show_report_popup)
+report_btn.pack(side="left", padx=10)
+
+
 
 
 
